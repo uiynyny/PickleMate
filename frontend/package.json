@@ -1,0 +1,29 @@
+{
+  "name": "picklemate-frontend",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev:h5": "uni",
+    "dev:mp-weixin": "uni -p mp-weixin",
+    "build:h5": "uni build",
+    "build:mp-weixin": "uni build -p mp-weixin"
+  },
+  "dependencies": {
+    "@dcloudio/uni-app": "3.0.0-alpha-4010520240507001",
+    "@dcloudio/uni-app-plus": "3.0.0-alpha-4010520240507001",
+    "@dcloudio/uni-components": "3.0.0-alpha-4010520240507001",
+    "@dcloudio/uni-h5": "3.0.0-alpha-4010520240507001",
+    "@dcloudio/uni-mp-weixin": "3.0.0-alpha-4010520240507001",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.27"
+  },
+  "devDependencies": {
+    "@dcloudio/types": "^3.4.8",
+    "@dcloudio/vite-plugin-uni": "3.0.0-alpha-4010520240507001",
+    "@vue/tsconfig": "^0.5.1",
+    "sass": "^1.77.2",
+    "sass-loader": "^14.2.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.2.11"
+  }
+}

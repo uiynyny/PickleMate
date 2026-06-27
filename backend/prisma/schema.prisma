@@ -1,0 +1,90 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id              String         @id @default(uuid())
+  nickname        String?
+  avatarUrl       String?
+  skillLevel      Float?
+  wechatOpenId    String?        @unique
+  wechatUnionId   String?        @unique
+  phone           String?
+  created_at      DateTime       @default(now())
+
+  // Relationships
+  courtsCreated   Court[]        @relation("CourtsCreated")
+  checkIns        CheckIn[]
+  bulletinPosts   BulletinPost[]
+  hostedSessions  PlaySession[]  @relation("HostedSessions")
+  playSessions    PlaySession[]  @relation("PlaySessionPlayers")
+}
+
+model Court {
+  id            String         @id @default(uuid())
+  name          String
+  address       String
+  location      Unsupported("geography(Point, 4326)")
+  isIndoor      Boolean
+  hasLights     Boolean
+  numCourts     Int
+  netType       String
+  surfaceType   String
+  isVerified    Boolean        @default(false)
+  created_at    DateTime       @default(now())
+
+  // Relationships
+  createdById   String?
+  createdBy     User?          @relation("CourtsCreated", fields: [createdById], references: [id])
+  checkIns      CheckIn[]
+  posts         BulletinPost[]
+  sessions      PlaySession[]
+}
+
+model CheckIn {
+  id          String   @id @default(uuid())
+  startTime   DateTime
+  endTime     DateTime
+  created_at  DateTime @default(now())
+
+  // Relationships
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  courtId     String
+  court       Court    @relation(fields: [courtId], references: [id])
+}
+
+model BulletinPost {
+  id          String   @id @default(uuid())
+  content     String
+  created_at  DateTime @default(now())
+
+  // Relationships
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  courtId     String
+  court       Court    @relation(fields: [courtId], references: [id])
+}
+
+model PlaySession {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  maxPlayers  Int
+  skillMin    Float
+  skillMax    Float
+  playTime    DateTime
+  created_at  DateTime @default(now())
+
+  // Relationships
+  courtId     String
+  court       Court    @relation(fields: [courtId], references: [id])
+  hostId      String
+  host        User     @relation("HostedSessions", fields: [hostId], references: [id])
+  players     User[]   @relation("PlaySessionPlayers")
+}

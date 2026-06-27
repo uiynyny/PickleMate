@@ -1,0 +1,48 @@
+{
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "style": {
+        "navigationBarTitleText": "PickleMate - Court Finder",
+        "navigationBarBackgroundColor": "#121212",
+        "navigationBarTextStyle": "white",
+        "backgroundColor": "#121212"
+      }
+    },
+    {
+      "path": "pages/profile/profile",
+      "style": {
+        "navigationBarTitleText": "PickleMate - My Profile",
+        "navigationBarBackgroundColor": "#121212",
+        "navigationBarTextStyle": "white",
+        "backgroundColor": "#121212"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "PickleMate",
+    "navigationBarBackgroundColor": "#121212",
+    "backgroundColor": "#121212"
+  },
+  "tabBar": {
+    "color": "#8E8E93",
+    "selectedColor": "#C1F80A",
+    "backgroundColor": "#1E1E1E",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "Find Courts",
+        "iconPath": "static/tabbar/home.png",
+        "selectedIconPath": "static/tabbar/home-active.png"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "Profile",
+        "iconPath": "static/tabbar/profile.png",
+        "selectedIconPath": "static/tabbar/profile-active.png"
+      }
+    ]
+  }
+}
