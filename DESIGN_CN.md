@@ -1,6 +1,6 @@
 # PickleMate 项目系统设计说明书与研发路线图 (DESIGN & ROADMAP)
 
-本文件详尽记录了 **PickleMate** 匹克球球场发现、入驻、社交拼场平台的完整系统架构设计、数据库实体关系、核心模块技术方案、以及为期 **8 周** 的分阶段详细研发路线图。
+本文件详尽记录了 **PickleMate** — 一款灵感来自 [Pickleheads Play](https://apps.apple.com/cn/app/pickleheads-play-pickleball/id6448714446) 的匹克球社交应用。PickleMate 提供四大核心功能：**用户管理系统**、**地图球场发现**、**约战邀请系统**、以及**实时聊天平台**。文件涵盖完整系统架构设计、数据库实体关系、核心模块技术方案、以及分阶段详细研发路线图。
 
 ---
 
@@ -33,10 +33,20 @@ PickleMate 采用现代的前后端分离 (Monorepo) 架构，确保一套核心
               └─────────────────────────┘
 ```
 
-### 1.1 技术栈选型优势
+### 1.1 四大核心功能 (Core Features)
+
+| 功能 | 说明 |
+|------|------|
+| **用户管理系统** | 个人资料、技能等级（自评或DUPR）、头像、统计数据、比赛历史与评分 |
+| **地图球场发现** | 交互式地图展示附近匹克球场地，含详情、可用状态和用户评价 |
+| **约战邀请系统** | 创建场次、设定技能要求、邀请特定玩家或开放公开报名 |
+| **实时聊天平台** | 每场次/球场群聊、私信、线程回复、投票和推送通知 |
+
+### 1.2 技术栈选型优势
 *   **前端:** **uni-app (Vue 3 + TS)**。借助于 DCloud 的多端编译技术，Vue 3 代码在微信端会转化为原生的 `WXML/WXSS`，极大地保障了渲染流畅度。在 App 端，则支持使用原生渲染引擎，保障了操作体验与流畅的转场动画。
-*   **后端:** **NestJS (TypeScript)**。利用控制反转（IoC）和依赖注入（DI）的模块化开发范式，天然适应团队协同，代码规范性极强。
+*   **后端:** **NestJS (TypeScript)**。利用控制反转（IoC）和依赖注入（DI）的模块化开发范式，天然适应团队协同，代码规范性极强。**内置 WebSocket Gateway 支持**，用于实时聊天、会话更新和推送通知。
 *   **数据库:** **PostgreSQL + PostGIS 插件**。这是目前最强大、最高效的开源地理空间数据库方案，能够以亚毫秒级延迟处理数十万球场的地理围栏和距离排序查询。
+*   **ORM:** **Prisma**。类型安全查询、事务处理和自动迁移工具。
 
 ---
 
@@ -45,14 +55,250 @@ PickleMate 采用现代的前后端分离 (Monorepo) 架构，确保一套核心
 由于常规 ORM 对 PostGIS 空间几何列的直接支持有限，我们通过 Prisma 管理常规字段关系，并在数据库迁移阶段通过**原生 SQL** 开启 PostGIS 支持并建立 `GiST`（广义搜索树）空间索引，从而大幅提升范围检索性能。
 
 ### 2.1 数据库结构设计 (`prisma/schema.prisma`)
+
+以下是完整的 Prisma Schema，包含所有核心模型和关系：
+
 ```prisma
-// 核心数据模型说明：
-// 1. User: 玩家实体。同时兼容微信 OpenID/UnionID 鉴权和手机号登录。
-// 2. Court: 球场实体。地理坐标(location)将在数据库中通过 PostGIS 的 GEOGRAPHY 类型表达。
-// 3. CheckIn: 签到表。记录玩家在特定时间段内预告前往球场的动态。
-// 4. BulletinPost: 球场留言板。异步交流板，用于交换球场即时状况。
-// 5. PlaySession: 社交拼场。用于实现“2人缺2”、“新手局限制 DUPR 3.0+”等社交约战。
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==================== 用户管理 ====================
+model User {
+  id             String        @id @default(uuid())
+  nickname       String
+  avatarUrl      String?       @map("avatar_url")
+  skillLevel     Float?        @map("skill_level") // 自评或DUPR等级 (2.0 - 5.5)
+  bio            String?       @map("bio")         // 用户简介
+  wechatOpenId   String?       @unique @map("wechat_openid")
+  wechatUnionId  String?       @unique @map("wechat_unionid")
+  phone          String?       @unique
+  email          String?       @unique
+  isVerified     Boolean       @default(false) @map("is_verified") // 邮箱/手机验证状态
+  
+  // 关联关系
+  courtsCreated  Court[]       @relation("CreatedCourts")
+  checkIns       CheckIn[]
+  bulletinPosts  BulletinPost[]
+  playSessions   PlaySession[] @relation("SessionMembers")
+  hostedSessions PlaySession[] @relation("HostSessions")
+  sentInvites    SessionInvite[] @relation("SentInvites")
+  receivedInvites SessionInvite[] @relation("ReceivedInvites")
+  chatMessages   ChatMessage[] @relation("UserMessages")
+  dmConversations DmConversation[] @relation("DmParticipants")
+  
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  @@map("users")
+}
+
+// ==================== 球场管理 ====================
+model Court {
+  id          String        @id @default(uuid())
+  name        String
+  address     String
+  city        String?       @map("city")
+  isIndoor    Boolean       @default(false) @map("is_indoor")
+  hasLights   Boolean       @default(false) @map("has_lights")
+  numCourts   Int           @default(1) @map("num_courts")
+  netType     String?       @map("net_type") // permanent, portable
+  surfaceType String?       @map("surface_type") // asphalt, acrylic, wood, concrete
+  
+  // 评分与评价
+  avgRating   Float?        @default(0) @map("avg_rating")
+  reviewCount Int           @default(0) @map("review_count")
+  
+  isVerified  Boolean       @default(false) @map("is_verified")
+  createdBy   User?         @relation("CreatedCourts", fields: [createdById], references: [id])
+  createdById String?       @map("created_by_id")
+  checkIns    CheckIn[]
+  posts       BulletinPost[]
+  sessions    PlaySession[]
+  
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  // PostGIS location (GEOGRAPHY(Point, 4326)) 通过原生SQL迁移添加
+  @@map("courts")
+}
+
+// ==================== 签到系统 ====================
+model CheckIn {
+  id        String   @id @default(uuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String   @map("user_id")
+  court     Court    @relation(fields: [courtId], references: [id])
+  courtId   String   @map("court_id")
+  startTime DateTime @map("start_time")
+  endTime   DateTime? @map("end_time")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("check_ins")
+}
+
+// ==================== 留言板 ====================
+model BulletinPost {
+  id        String   @id @default(uuid())
+  content   String
+  images    String[] @default([]) // 球场状况照片
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String   @map("user_id")
+  court     Court    @relation(fields: [courtId], references: [id])
+  courtId   String   @map("court_id")
+  likes     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("bulletin_posts")
+}
+
+// ==================== 约战拼场 ====================
+model PlaySession {
+  id          String            @id @default(uuid())
+  title       String
+  description String?
+  status      SessionStatus     @default(PENDING) // PENDING, CONFIRMED, IN_PROGRESS, COMPLETED, CANCELLED
+  
+  court       Court             @relation(fields: [courtId], references: [id])
+  courtId     String            @map("court_id")
+  host        User              @relation("HostSessions", fields: [hostId], references: [id])
+  hostId      String            @map("host_id")
+  
+  // 加入的玩家（非邀请）
+  players     User[]            @relation("SessionMembers")
+  
+  maxPlayers  Int               @default(4)   @map("max_players")
+  skillMin    Float?            @map("skill_min")
+  skillMax    Float?            @map("skill_max")
+  isPublic    Boolean           @default(true) @map("is_public") // 公开报名或仅邀请
+  
+  playTime    DateTime          @map("play_time")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  
+  invites     SessionInvite[]
+  chatRoom    ChatRoom?         @relation("SessionChat")
+
+  @@map("play_sessions")
+}
+
+enum SessionStatus {
+  PENDING      // 待确认
+  CONFIRMED    // 已确认
+  IN_PROGRESS  // 进行中
+  COMPLETED    // 已完成
+  CANCELLED    // 已取消
+}
+
+// ==================== 邀请系统 ====================
+model SessionInvite {
+  id        String      @id @default(uuid())
+  session   PlaySession @relation(fields: [sessionId], references: [id])
+  sessionId String      @map("session_id")
+  
+  sender    User        @relation("SentInvites", fields: [senderId], references: [id])
+  senderId  String      @map("sender_id")
+  
+  recipient User        @relation("ReceivedInvites", fields: [recipientId], references: [id])
+  recipientId String    @map("recipient_id")
+  
+  status    InviteStatus @default(PENDING) // PENDING, ACCEPTED, DECLINED, EXPIRED
+  
+  sentAt    DateTime    @default(now())   @map("sent_at")
+  respondedAt DateTime? @map("responded_at")
+
+  @@map("session_invites")
+}
+
+enum InviteStatus {
+  PENDING    // 待处理
+  ACCEPTED   // 已接受
+  DECLINED   // 已拒绝
+  EXPIRED    // 已过期
+}
+
+// ==================== 聊天系统 ====================
+model ChatRoom {
+  id        String         @id @default(uuid())
+  
+  sessionId String?        @map("session_id")
+  session   PlaySession?   @relation("SessionChat", fields: [sessionId], references: [id])
+  
+  courtId   String?        @map("court_id")
+  court     Court?         @relation(fields: [courtId], references: [id])
+  
+  name      String?        // 群聊显示名称
+  
+  participants User[]      @relation("ChatParticipants")
+  
+  messages  ChatMessage[]
+  
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  @@map("chat_rooms")
+}
+
+model DmConversation {
+  id        String         @id @default(uuid())
+  
+  participants User[]      @relation("DmParticipants")
+  
+  messages  ChatMessage[]
+  
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  @@map("dm_conversations")
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  content   String
+  type      MessageType @default(TEXT) // TEXT, IMAGE, POLL, SYSTEM
+  
+  user      User     @relation("UserMessages", fields: [userId], references: [id])
+  userId    String   @map("user_id")
+  
+  roomId    String?  @map("room_id")
+  room      ChatRoom? @relation(fields: [roomId], references: [id])
+  
+  dmId      String?  @map("dm_id")
+  dm        DmConversation? @relation(fields: [dmId], references: [id])
+  
+  // 线程回复
+  parentId  String?  @map("parent_id")
+  parent    ChatMessage? @relation("MessageReplies", fields: [parentId], references: [id])
+  replies   ChatMessage[]                  @relation("MessageReplies")
+  
+  pollOptions String? @map("poll_options") // JSON数组格式投票选项
+  
+  isDeleted Boolean  @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at")
+  
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("chat_messages")
+}
+
+enum MessageType {
+  TEXT   // 文本消息
+  IMAGE  // 图片消息
+  POLL   // 投票消息
+  SYSTEM // 系统通知
+}
 ```
+
+**核心模型说明：**
+1. **User**: 玩家实体，支持微信 OpenID/UnionID、手机号、邮箱登录，含技能等级和验证状态。
+2. **Court**: 球场实体，地理坐标通过 PostGIS GEOGRAPHY 类型存储，含评分和评价计数。
+3. **CheckIn**: 签到记录，支持开始/结束时间追踪。
+4. **BulletinPost**: 留言板帖子，支持图片和点赞。
+5. **PlaySession**: 约战场次，含状态机（待确认→进行中→已完成/取消）。
+6. **SessionInvite**: 邀请系统，跟踪发送者、接收者和接受/拒绝状态。
+7. **ChatRoom**: 群聊房间，关联场次或球场。
+8. **DmConversation**: 私信对话，双向参与者关系。
+9. **ChatMessage**: 消息实体，支持文本、图片、投票、线程回复。
 
 ### 2.2 核心地理空间查询原理
 当用户打开首页地图时，前端会获取当前手机的 GPS 坐标（如经度 $116.40$、纬度 $39.90$）。NestJS 后端通过 Prisma 的 `$queryRaw` 执行原生 PostGIS SQL：
@@ -68,17 +314,67 @@ ORDER BY distance_meters ASC;
 
 ---
 
-## 3. 详细研发路线图与时间表 (Roadmap & Timeline)
+## 3. API 接口设计 (API Endpoints Design)
 
-项目整体研发计划调整为以 **iOS 原生开发首发**为主导，随后进行 **Android 快速移植适配**，最后完成 **微信小程序适配与公测发布**。
+### 3.1 用户管理
+*   **注册/登录:** `POST /auth/register`, `POST /auth/login`（手机OTP + Apple Sign-In）
+*   **个人资料:** `GET/PUT /users/me` — 查看和更新资料、技能等级、头像、简介
+*   **搜索用户:** `GET /users/search?q=keyword&skillMin=X&skillMax=Y`
+
+### 3.2 球场发现（地图驱动）
+*   **附近球场:** `GET /courts/nearby?lat=&lng=&radius=` — 使用 PostGIS 查询返回半径内按距离排序的球场：
+    ```sql
+    SELECT id, name, address, is_indoor, has_lights, net_type, num_courts, avg_rating, review_count,
+           ST_Distance(location, ST_MakePoint($1, $2)::geography) AS distance
+    FROM courts
+    WHERE ST_DWithin(location, ST_MakePoint($1, $2)::geography, $3)
+    ORDER BY distance ASC;
+    ```
+*   **球场详情:** `GET /courts/:id` — 完整球场信息、评价、即将开始的场次、留言板帖子
+*   **创建球场:** `POST /courts` — 提交新球场及地图坐标
+
+### 3.3 约战邀请系统
+*   **创建场次:** `POST /sessions` — 主持人创建约战场次（时间、人数上限、技能范围、公开/仅邀请）
+*   **加入场次:** `POST /sessions/:id/join` — 玩家加入公开场次（事务锁检查容量）
+*   **发送邀请:** `POST /sessions/:id/invite` — 主持人向特定用户发送邀请：
+    1. 验证主持人在场次中的权限
+    2. 创建 `SessionInvite` 记录，状态为 `PENDING`
+    3. 通过 WebSocket 向接收者发送实时通知事件
+*   **回复邀请:** `POST /invites/:id/respond` — 接受/拒绝邀请：
+    * 接受时：将接收者加入场次玩家列表，更新邀请状态
+    * 拒绝时：更新邀请状态，通过 WebSocket 通知主持人
+*   **我的场次:** `GET /users/me/sessions?tab=hosting|joined|invited`
+
+### 3.4 实时聊天（WebSocket）
+*   **场次/球场群聊:** 每个场次或球场的 WebSocket 房间用于实时消息传递
+    * 事件: `chat:message`, `chat:typing`, `chat:userJoined`, `chat:userLeft`
+*   **私信:** 两个用户之间的 WebSocket 私信
+    * 事件: `dm:message`, `dm:typing`
+*   **聊天功能支持:**
+    * 支持 Markdown 的文本消息
+    * 图片附件（云存储）
+    * 消息线程回复
+    * 群内投票创建与参与
+    * 消息已读回执
+
+### 3.5 签到与留言板
+*   **签到:** `POST /courts/:id/checkin` — 在球场开始签到
+*   **结束签到:** `PUT /checkins/:id/end` — 结束签到时段
+*   **留言板帖子:** `GET/POST /courts/:id/bulletin` — 发布球场状况、照片和评论
+
+---
+
+## 4. 详细研发路线图与时间表 (Roadmap & Timeline)
+
+项目整体研发计划分为 **7 个主要阶段**，优先完成核心用户管理和球场发现功能，然后依次添加约战邀请、实时聊天，最后进行原生平台发布。
 
 ```
-              第 1 周           第 2-3 周          第 4-5 周          第 6-7 周           第 8 周           后续阶段
-         ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
-         │  Phase 1:    │   │  Phase 2:    │   │  Phase 3:    │   │  Phase 4:    │   │  Phase 5:    │   │  Phase 6:    │
-         │ 基础框架搭建 │──>│ iOS 首发鉴权 │──>│ iOS 原生地图 │──>│ 社交与APNs推送│──>│ iOS打包/安卓 │──>│ 微信小程序端 │
-         │  (已完成 ✅)  │   │ (耗时: 14天) │   │ (耗时: 14天) │   │ (耗时: 14天) │   │ (耗时: 14天) │   │ (耗时: 14天) │
-         └──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘
+              第 1 周           第 2-3 周          第 4-5 周          第 6-7 周           第 8-9 周         第 10-11 周      后续阶段
+         ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
+         │  Phase 1:    │   │  Phase 2:    │   │  Phase 3:    │   │  Phase 4:    │   │  Phase 5:    │   │  Phase 6:    │   │  Phase 7:    │
+         │ 基础框架搭建 │──>│ 用户管理系统 │──>│ 地图球场发现 │──>│ 约战邀请系统 │──>│ 实时聊天平台 │──>│ 原生平台发布 │──>│ 微信小程序端 │
+         │  (已完成 ✅)  │   │  (14天)      │   │  (14天)      │   │  (14天)      │   │  (14天)      │   │  (14天)      │   │  (14天)      │
+         └──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘
 ```
 
 ---
@@ -97,8 +393,8 @@ ORDER BY distance_meters ASC;
 
 ---
 
-### Phase 2: 后端核心地理空间接口与 iOS 首发鉴权 (第 2 - 3 周)
-*   **研发目标:** 激活 PostgreSQL 的 PostGIS 支持，实现 iOS 首发的手机短信验证码 OTP 登录以及 Apple Sign-In 一键登录。
+### Phase 2: 用户管理系统 (第 2 - 3 周) — [下一步]
+*   **研发目标:** 实现完整的用户认证体系（手机OTP / Apple Sign-In / 微信UnionID）、个人资料管理和技能等级系统。
 *   **详细分解步骤:**
     *   **步骤 2.1: PostGIS 激活与数据库空间字段迁移 (时间: 2 天)**
         *   编写并运行数据库迁移 SQL 脚本，激活扩展：`CREATE EXTENSION IF NOT EXISTS postgis;`。
@@ -137,63 +433,88 @@ ORDER BY distance_meters ASC;
 
 ---
 
-### Phase 4: 社交拼场约战系统与 iOS APNs 实时推送 (第 6 - 7 周)
-*   **研发目标:** 实现平台最具粘性的快捷签到与约战拼局逻辑，并接入 iOS 官方 APNs 原生推送。
+### Phase 4: 约战邀请系统 (第 6 - 7 周)
+*   **研发目标:** 实现场次创建/加入、邀请系统和实时通知。
 *   **详细分解步骤:**
-    *   **步骤 4.1: 快捷签到 (Check-In) 状态看板 (时间: 3 天)**
-        *   开发球场快捷打卡功能，记录玩家前往时间段（如“今日 18:00 - 20:00”）。
-        *   服务端多并发处理签到人数，并生成该球场今日的热度波动图表。
-    *   **步骤 4.2: 社区留言板系统 (Court Bulletins) (时间: 3 天)**
-        *   为球场加入留言反馈板块，允许玩家发布临时路况信息（如网破、起风、球场积水）。
-        *   实现违规内容过滤：对接敏感词库与安全审核过滤接口，保障社交氛围健康。
-    *   **步骤 4.3: 约战拼场引擎开发与并发锁 (Play Sessions) (时间: 5 天)**
-        *   开发核心约战功能：玩家发起拼局（设定时间、限制 DUPR 级别、男双/混双/新手局、满人自动发车）。
-        *   加入数据库行锁/Redis 分布式锁，防止多名玩家并发抢位时发生超卖挤占。
-    *   **步骤 4.4: iOS 原生 APNs 推送服务集成 (时间: 3 天)**
-        *   配置苹果 APNs (Apple Push Notification service) 推送凭证与证书。
-        *   集成极光推送（JPush）或 UniPush 2.0 模块，在约战局“人满发车”、“临近开局”时，向用户发送 iOS 系统级强提醒通知。
-*   **里程碑产物:** 带有并发控制的安全约战拼局引擎、通过 iOS 系统通知实现的用户消息闭环。
+    *   **步骤 4.1: 场次 CRUD API (时间: 3 天)**
+        *   创建、更新、取消、完成约战场次，含权限校验（仅主持人可编辑）。
+    *   **步骤 4.2: 加入/退出场次逻辑 (时间: 3 天)**
+        *   事务锁检查容量防止超卖，技能等级匹配验证。
+        *   支持玩家主动退场，主持人管理踢人功能。
+    *   **步骤 4.3: 邀请系统 (时间: 5 天)**
+        *   主持人向特定用户发送邀请 → 接收者接受/拒绝 → 自动加入玩家列表。
+        *   邀请过期机制（如24小时未响应自动标记 EXPIRED）。
+    *   **步骤 4.4: WebSocket 邀请通知 (时间: 3 天)**
+        *   事件: `invite:sent`, `invite:accepted`, `invite:expired`。
+        *   iOS APNs / Android FCM 推送提醒新邀请。
+    *   **步骤 4.5: "我的场次"页面 (时间: 2 天)**
+        *   Tab 切换：正在主持 / 已加入 / 收到邀请，含状态标签。
+    *   **步骤 4.6: 技能匹配推荐 (时间: 3 天)**
+        *   创建场次时根据技能范围推荐相似水平的玩家。
+*   **里程碑产物:** 完整的约战拼场引擎、邀请系统、WebSocket 实时通知。
 
 ---
 
-### Phase 5: iOS 打包提审、TestFlight 分发与 Android 快速适配 (第 8 周)
-*   **研发目标:** 完成 iOS 版本的生产打包与 TestFlight 首期封测，并将应用快速移植、适配至 Android 平台。
+### Phase 5: 实时聊天平台 (第 8 - 9 周)
+*   **研发目标:** 实现群聊（场次/球场）、私信、投票和线程回复。
 *   **详细分解步骤:**
-    *   **步骤 5.1: iOS 真机调优与 TestFlight 发布 (时间: 4 天)**
-        *   在 Xcode 中联调真机，排查内嵌地图卡顿、内存泄漏等性能问题。
-        *   创建 Apple 开发者证书与 AdHoc/App Store 描述文件，上传构建包至 App Store Connect。
-        *   开启 TestFlight 分发，招募首批匹克球发烧友进行闭环测试与反馈。
-    *   **步骤 5.2: Android 平台移植与地图/推送适配 (时间: 5 天)**
-        *   将 uni-app 代码的目标编译端切换至 Android 平台，检测并修复任何由于平台不一致导致的 CSS 样式偏差。
-        *   适配 Android 内置定位与高德地图 SDK。
-        *   将推送依赖从纯 APNs 升级为兼容小米、华为、OPPO、vivo 及 Google FCM 的安卓统一推送通道。
-    *   **步骤 5.3: 双端正式发布包准备 (时间: 3 天)**
-        *   准备并混淆 Android 签名包（Release `.apk` 与 `.aab`）。
-        *   整理 App Store 提审材料，准备最终上架审核。
+    *   **步骤 5.1: NestJS WebSocket Gateway 搭建 (时间: 3 天)**
+        *   基于 Socket.IO 或原生 WebSocket，房间制消息架构。
+        *   认证中间件：验证 JWT token 后加入对应房间。
+    *   **步骤 5.2: 场次群聊 (时间: 4 天)**
+        *   创建场次时自动创建关联 ChatRoom，参与者自动加入。
+        *   事件: `chat:message`, `chat:typing`, `chat:userJoined`, `chat:userLeft`。
+    *   **步骤 5.3: 球场群聊 (时间: 3 天)**
+        *   每个球场持久化聊天室，供社区持续讨论。
+        *   支持历史消息加载和分页。
+    *   **步骤 5.4: 私信系统 (时间: 4 天)**
+        *   两个用户间的 DmConversation，含对话列表和未读徽章。
+        *   事件: `dm:message`, `dm:typing`。
+    *   **步骤 5.5: 消息类型支持 (时间: 5 天)**
+        *   文本（Markdown）、图片（云存储上传）、投票（创建+投票）、线程回复。
+        *   消息已读回执、在线状态检测。
+*   **里程碑产物:** 实时聊天平台（群聊/私信/投票/线程）、WebSocket 推送闭环。
+
+---
+
+### Phase 6: 原生平台发布 (第 10 - 11 周)
+*   **研发目标:** iOS TestFlight / App Store 提审，Android APK/AAB 打包发布。
+*   **详细分解步骤:**
+    *   **步骤 6.1: iOS 真机性能调优 (时间: 4 天)**
+        *   地图渲染优化、WebSocket 重连机制、数据库查询性能分析。
+        *   Sentry 崩溃报告 + Mixpanel/Amplitude 数据分析集成。
+    *   **步骤 6.2: iOS TestFlight / App Store (时间: 5 天)**
+        *   Xcode 真机联调，生成 Distribution Profile，上传至 App Store Connect。
+        *   TestFlight 内测分发，收集首批用户反馈。
+    *   **步骤 6.3: Android 原生适配 (时间: 5 天)**
+        *   Google Maps SDK 集成、FCM 推送通道配置。
+        *   兼容小米/华为/OPPO/vivo 等国内厂商推送。
+    *   **步骤 6.4: 双端发布包准备 (时间: 3 天)**
+        *   IPA（App Store）、APK/AAB（Google Play + 安卓市场）。
 *   **里程碑产物:** TestFlight 内测包、iOS 提审版 IPA、Android 优化发布包。
 
 ---
 
-### Phase 6: 微信小程序适配与公测发布 (后续迭代)
+### Phase 7: 微信小程序适配与公测发布 (后续迭代)
 *   **研发目标:** 将已有的高品质原生 App 体验，平滑向下兼容适配至微信小程序端，拓展流量入口。
 *   **详细分解步骤:**
-    *   **步骤 6.1: 微信静默登录与 UnionID 映射 (时间: 3 天)**
+    *   **步骤 7.1: 微信静默登录与 UnionID 映射 (时间: 3 天)**
         *   开发 NestJS 端 `/auth/wechat-mp`，接收小程序 `wx.login` 获取的 `code`。
         *   换取微信 `openid` 与统一 `unionid`。若 UnionID 匹配到已注册的 App 手机账户，则自动实现免密登录和数据平滑互通。
-    *   **步骤 6.2: 微信内置腾讯地图与定位组件替换 (时间: 3 天)**
+    *   **步骤 7.2: 微信内置腾讯地图与定位组件替换 (时间: 3 天)**
         *   前端条件编译：在微信小程序环境下，将原生 iOS 地图切换为腾讯地图内核，使用 `uni.createMapContext` 进行交互控制。
-    *   **步骤 6.3: 小程序物理体积调优与分包 (时间: 4 天)**
+    *   **步骤 7.3: 小程序物理体积调优与分包 (时间: 4 天)**
         *   微信要求小程序单个分包不超过 2MB。在 `manifest.json` 中配置分包机制 (Subpackages)，将球场创建、约战拼局等非首页模块划归到分包，确保首页加载首包体积 $\le$ 1MB，确保加载速度。
         *   开启代码压缩与图片静态资源的 CDN 托管。
-    *   **步骤 6.4: 微信订阅消息接入与上架提审 (时间: 4 天)**
+    *   **步骤 7.4: 微信订阅消息接入与上架提审 (时间: 4 天)**
         *   使用 `wx.requestSubscribeMessage` 调起微信原生提醒授权，替换 App 端的 APNs 推送，完成微信小程序的发布公测。
 *   **里程碑产物:** 完美打通数据、完全合规分包、体验丝滑的微信小程序线上正式版。
 
 ---
 
-## 4. 研发团队配置建议 (Recommended Team)
+## 5. 研发团队配置建议 (Recommended Team)
 
-为确保该 8 周开发路线图的顺利实施，推荐团队配置如下：
-1.  **全栈开发工程师 (1名):** 负责 NestJS 接口编写、Prisma ORM 调试以及 PostgreSQL/PostGIS 的空间 SQL 维护。
-2.  **跨端前端工程师 (1名):** 负责 uni-app (Vue 3 + TS) 开发，深度负责高德/微信原生地图调优、TabBar 动效及打包分包。
-3.  **UI/UX 兼产品测试 (1名):** 负责 Lime Green 活力主题的设计产出，管理 8 周内各阶段交付产物的 E2E 功能测试。
+为确保该 **11周+** 开发路线图的顺利实施，推荐团队配置如下：
+1.  **全栈开发工程师 (1名):** 负责 NestJS 接口编写、Prisma ORM 调试、PostgreSQL/PostGIS 空间 SQL 维护以及 WebSocket Gateway 搭建。
+2.  **跨端前端工程师 (1名):** 负责 uni-app (Vue 3 + TS) 开发，深度负责高德/微信原生地图调优、TabBar 动效、打包分包及聊天 UI 实现。
+3.  **UI/UX 兼产品测试 (1名):** 负责 Lime Green 活力主题的设计产出，管理各阶段交付产物的 E2E 功能测试与用户体验打磨。

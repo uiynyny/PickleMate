@@ -146,6 +146,73 @@ npm run dev:app
     });
     ```
 
-### 4.3 Git 提交流程
+### 4.3 WebSocket 实时通信开发 (新增 ⚡)
+*   **后端:** NestJS 使用 `@nestjs/websockets` + `@socket.io/adapter-redis`（生产环境）实现 WebSocket Gateway。
+    *   入口文件: `backend/src/chat/chat.gateway.ts`
+    *   认证中间件通过 JWT guard 验证用户身份后加入对应房间（场次群聊 / 球场群聊 / 私信）。
+*   **前端:** uni-app 端使用 `uni.connectSocket` 建立 WebSocket 连接，Pinia store 管理消息队列和房间订阅状态。
+    *   事件命名规范: `chat:message`, `dm:message`, `invite:sent`, `session:update`
+    *   断线重连策略: 指数退避重试（1s → 2s → 4s → max 30s），最多 5 次。
+
+### 4.4 Git 提交流程
 *   严禁将含有物理数据库密码、微信 Secret 密钥的本地 `.env` 文件提交至代码仓库。
 *   提交代码前请确保在本地运行一次编译流程（`npm run build`），确保无 TypeScript 静态类型报错后再进行 Stage 和 Push。
+
+---
+
+## 5. API 接口文档与测试 (API Documentation)
+
+### 5.1 Swagger 文档生成
+后端启动后，访问 `http://localhost:3000/api` 可查看自动生成的 Swagger API 文档，包含所有接口的请求参数、响应格式和示例。
+
+### 5.2 核心端点速查表
+
+| 模块 | 方法 | 端点 | 说明 |
+|------|------|------|------|
+| **用户** | POST | `/auth/register` | 手机OTP注册 |
+| **用户** | POST | `/auth/login` | 手机OTP登录 |
+| **用户** | GET/PUT | `/users/me` | 个人资料查询/更新 |
+| **球场** | GET | `/courts/nearby?lat=&lng=&radius=` | PostGIS附近球场搜索 |
+| **球场** | GET | `/courts/:id` | 球场详情（含评价） |
+| **场次** | POST | `/sessions` | 创建约战场次 |
+| **场次** | POST | `/sessions/:id/join` | 加入公开场次 |
+| **邀请** | POST | `/sessions/:id/invite` | 发送邀请 |
+| **邀请** | POST | `/invites/:id/respond` | 接受/拒绝邀请 |
+| **聊天** | WS | `wss://...` | WebSocket 实时通信 |
+
+### 5.3 Postman / Insomnia 集合
+项目根目录提供 `PickleMate_API.postman_collection.json`，可直接导入进行接口测试。包含所有认证流程（OTP登录获取JWT token）和预置环境变量。
+
+---
+
+## 6. 新增环境变量 (Environment Variables)
+
+在 `.env` 文件中可能需要添加以下变量以支持新功能：
+
+```ini
+# ==================== 新增: 聊天与推送 ====================
+# Redis 连接（WebSocket房间持久化 + 会话存储）
+REDIS_URL="redis://localhost:6379"
+
+# 云存储服务（图片/文件上传 - 阿里云OSS / AWS S3 / 腾讯云COS）
+CLOUD_STORAGE_PROVIDER="aliyun"        # aliyun | aws | tencent
+CLOUD_STORAGE_BUCKET="picklemate-assets"
+CLOUD_STORAGE_REGION="oss-cn-shanghai"
+CLOUD_STORAGE_ACCESS_KEY="your_key"
+CLOUD_STORAGE_SECRET_KEY="your_secret"
+
+# 推送通知（iOS APNs / Android FCM）
+APNS_CERT_PATH="./certs/apns.p12"      # Apple Push Notification 证书路径
+FCM_SERVER_KEY="your_fcm_server_key"   # Firebase Cloud Messaging Server Key
+
+# 短信服务（阿里云/腾讯云 SMS）
+SMS_PROVIDER="aliyun"                   # aliyun | tencent
+SMS_APP_ID="your_sms_app_id"
+SMS_SIGN_NAME="PickleMate"
+
+# JWT 刷新令牌过期时间（毫秒，默认7天）
+JWT_REFRESH_EXPIRATION="604800000"
+
+# 邀请链接过期时间（小时）
+INVITE_EXPIRE_HOURS=24
+```
