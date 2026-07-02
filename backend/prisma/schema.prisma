@@ -14,7 +14,8 @@ model User {
   skillLevel      Float?
   wechatOpenId    String?        @unique
   wechatUnionId   String?        @unique
-  phone           String?
+  appleUserId     String?        @unique
+  phone           String?        @unique
   created_at      DateTime       @default(now())
 
   // Relationships

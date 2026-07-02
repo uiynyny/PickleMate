@@ -42,7 +42,13 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:5432/picklemate?schema=pu
 # JWT 无状态令牌加密秘钥
 JWT_SECRET="picklemate_development_secret_key_99"
 
-# 微信小程序凭证（本地开发若没有，可先保持默认，部分微信接口将使用 Mock 返回）
+# Apple Sign-In 原生登录配置 (iOS 必备)
+APPLE_CLIENT_ID="com.picklemate.app"
+APPLE_TEAM_ID="YOUR_APPLE_DEVELOPER_TEAM_ID"
+APPLE_KEY_ID="YOUR_APPLE_SIGNIN_KEY_ID"
+APPLE_PRIVATE_KEY_PATH="./config/apple-signin-key.p8"
+
+# 微信小程序凭证（后续适配阶段使用，本地开发若没有，可先保持默认，部分微信接口将使用 Mock 返回）
 WECHAT_APPID="wx_mock_appid_12345"
 WECHAT_SECRET="mock_secret_abcde"
 ```

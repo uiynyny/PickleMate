@@ -1,6 +1,15 @@
 {
   "pages": [
     {
+      "path": "pages/court/detail",
+      "style": {
+        "navigationBarTitleText": "Court Details",
+        "navigationBarBackgroundColor": "#121212",
+        "navigationBarTextStyle": "white",
+        "backgroundColor": "#121212"
+      }
+    },
+    {
       "path": "pages/index/index",
       "style": {
         "navigationBarTitleText": "PickleMate - Court Finder",

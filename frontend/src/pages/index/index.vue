@@ -19,7 +19,7 @@
           @confirm="onSearch"
         />
       </view>
-      <view class="register-btn-wrap" @tap="navigateToRegister">
+      <view class="register-btn-wrap" @tap="handleRegisterTap">
         <text class="register-btn-text">＋ Register</text>
       </view>
     </view>
@@ -38,21 +38,22 @@
       </view>
     </scroll-view>
 
-    <!-- Map Area Mockup / Native Map -->
+    <!-- Map Area -->
     <view class="map-container">
-      <!-- In production, we use a real <map> component. For rich styling we add an overlay. -->
       <map 
+        id="court-map"
         class="court-map" 
-        :latitude="userLat" 
-        :longitude="userLng" 
+        :latitude="mapLat" 
+        :longitude="mapLng" 
         :markers="mapMarkers"
         show-location
         @markertap="onMarkerTap"
+        @regionchange="onRegionChange"
       >
         <cover-view class="map-overlay">
           <cover-view class="map-badge">
             <cover-view class="badge-dot"></cover-view>
-            <cover-view class="badge-text">Showing 3 Courts Nearby</cover-view>
+            <cover-view class="badge-text">Showing {{ filteredCourts.length }} Courts Nearby</cover-view>
           </cover-view>
         </cover-view>
       </map>
@@ -66,6 +67,9 @@
       </view>
 
       <view class="court-list">
+        <view v-if="filteredCourts.length === 0" class="empty-state">
+          <text class="empty-text">No courts found matching filters.</text>
+        </view>
         <view 
           v-for="court in filteredCourts" 
           :key="court.id" 
@@ -103,11 +107,141 @@
         </view>
       </view>
     </view>
+
+    <!-- Auth / OTP Modal -->
+    <view v-if="showAuthModal" class="modal-backdrop">
+      <view class="modal-content">
+        <view class="modal-header">
+          <text class="modal-title">手机验证快捷登录</text>
+          <text class="modal-close" @tap="showAuthModal = false">✕</text>
+        </view>
+        <view class="modal-body">
+          <text class="modal-desc">注册或创建球场前，请先绑定您的手机号</text>
+          
+          <view class="input-group">
+            <input 
+              class="modal-input" 
+              type="number" 
+              maxlength="11"
+              placeholder="请输入手机号" 
+              placeholder-style="color: #666666"
+              v-model="authPhone"
+            />
+          </view>
+
+          <view class="input-group row">
+            <input 
+              class="modal-input code-input" 
+              type="number" 
+              maxlength="4"
+              placeholder="验证码" 
+              placeholder-style="color: #666666"
+              v-model="authCode"
+            />
+            <button class="send-code-btn" :disabled="countdown > 0" @tap="sendOtp">
+              {{ countdown > 0 ? `${countdown}s` : '获取验证码' }}
+            </button>
+          </view>
+          <text v-if="otpToast" class="otp-hint">开发模式验证码: {{ otpToast }}</text>
+          
+          <button class="submit-btn" @tap="submitAuth">确认登录</button>
+        </view>
+      </view>
+    </view>
+
+    <!-- Court Registration Modal (UGC) -->
+    <view v-if="showRegisterModal" class="modal-backdrop">
+      <view class="modal-content">
+        <view class="modal-header">
+          <text class="modal-title">＋ 注册新球场</text>
+          <text class="modal-close" @tap="showRegisterModal = false">✕</text>
+        </view>
+        <view class="modal-body scrollable">
+          <text class="modal-desc">坐标将自动锁定在您当前的地图中心：</text>
+          <text class="coord-desc">经度: {{ regLng.toFixed(5) }} | 纬度: {{ regLat.toFixed(5) }}</text>
+          
+          <view class="input-group-label">球场名称</view>
+          <view class="input-group">
+            <input 
+              class="modal-input" 
+              type="text" 
+              placeholder="例如：朝阳公园匹克球馆" 
+              placeholder-style="color: #666666"
+              v-model="regName"
+            />
+          </view>
+
+          <view class="input-group-label">详细地址</view>
+          <view class="input-group">
+            <input 
+              class="modal-input" 
+              type="text" 
+              placeholder="例如：朝阳区朝阳公园南路1号" 
+              placeholder-style="color: #666666"
+              v-model="regAddress"
+            />
+          </view>
+
+          <view class="input-group-label">场地数量</view>
+          <view class="input-group">
+            <input 
+              class="modal-input" 
+              type="number" 
+              placeholder="共有多少片球场" 
+              placeholder-style="color: #666666"
+              v-model="regNumCourts"
+            />
+          </view>
+
+          <!-- Select Toggles -->
+          <view class="toggle-row">
+            <view class="toggle-item">
+              <text class="toggle-label">室内球场</text>
+              <switch :checked="regIsIndoor" color="#C1F80A" @change="regIsIndoor = $event.detail.value" />
+            </view>
+            <view class="toggle-item">
+              <text class="toggle-label">有照明灯</text>
+              <switch :checked="regHasLights" color="#C1F80A" @change="regHasLights = $event.detail.value" />
+            </view>
+          </view>
+
+          <view class="input-group-label">球网类型</view>
+          <radio-group class="radio-row" @change="regNetType = $event.detail.value">
+            <label class="radio-label">
+              <radio value="permanent" checked color="#C1F80A" /> 固定网
+            </label>
+            <label class="radio-label">
+              <radio value="portable" color="#C1F80A" /> 便携网
+            </label>
+          </radio-group>
+
+          <view class="input-group-label">地面类型</view>
+          <radio-group class="radio-row" @change="regSurfaceType = $event.detail.value">
+            <label class="radio-label">
+              <radio value="acrylic" checked color="#C1F80A" /> 丙烯酸
+            </label>
+            <label class="radio-label">
+              <radio value="asphalt" color="#C1F80A" /> 沥青
+            </label>
+            <label class="radio-label">
+              <radio value="concrete" color="#C1F80A" /> 水泥
+            </label>
+            <label class="radio-label">
+              <radio value="wood" color="#C1F80A" /> 木地板
+            </label>
+          </radio-group>
+
+          <button class="submit-btn" @tap="submitRegister">提交球场</button>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+
+const BASE_URL = 'http://localhost:3000';
 
 interface Court {
   id: string;
@@ -123,10 +257,37 @@ interface Court {
   activePlayers: number;
 }
 
-// User current coordinates (defaults to Beijing as dummy center, can update dynamically)
+// Map coordinate refs
 const userLat = ref(39.9042);
 const userLng = ref(116.4074);
+const mapLat = ref(39.9042);
+const mapLng = ref(116.4074);
+
 const searchQuery = ref('');
+const courts = ref<Court[]>([]);
+const mapContext = ref<any>(null);
+
+// Modals toggles
+const showAuthModal = ref(false);
+const showRegisterModal = ref(false);
+
+// Auth inputs
+const authPhone = ref('');
+const authCode = ref('');
+const countdown = ref(0);
+const otpToast = ref('');
+let timer: any = null;
+
+// Register inputs (UGC)
+const regLng = ref(0);
+const regLat = ref(0);
+const regName = ref('');
+const regAddress = ref('');
+const regIsIndoor = ref(false);
+const regHasLights = ref(false);
+const regNumCourts = ref('4');
+const regNetType = ref('permanent');
+const regSurfaceType = ref('acrylic');
 
 const filters = [
   { id: 'indoor', label: 'Indoor' },
@@ -137,69 +298,38 @@ const filters = [
 
 const activeFilters = ref<string[]>([]);
 
-const courts = ref<Court[]>([
-  {
-    id: '1',
-    name: 'Olympic Park Pickleball Club',
-    address: 'East Gate of Olympic Forest Park, Chaoyang District',
-    latitude: 39.9050,
-    longitude: 116.4080,
-    isIndoor: false,
-    hasLights: true,
-    netType: 'Permanent',
-    distance: '1.2 km',
-    rating: 4.8,
-    activePlayers: 18
-  },
-  {
-    id: '2',
-    name: 'Indoor Paddle Court Center',
-    address: 'No. 88 Workers Stadium Road, Chaoyang District',
-    latitude: 39.9020,
-    longitude: 116.4040,
-    isIndoor: true,
-    hasLights: true,
-    netType: 'Permanent',
-    distance: '2.5 km',
-    rating: 4.9,
-    activePlayers: 24
-  },
-  {
-    id: '3',
-    name: 'Community Sports Park Court',
-    address: 'Beiyuan Road Yard No. 5, Chaoyang District',
-    latitude: 39.9090,
-    longitude: 116.4120,
-    isIndoor: false,
-    hasLights: false,
-    netType: 'Portable',
-    distance: '3.8 km',
-    rating: 4.2,
-    activePlayers: 5
-  }
-]);
-
 // Convert courts to Map Markers
 const mapMarkers = computed(() => {
   return courts.value.map(court => ({
-    id: parseInt(court.id),
+    id: court.id.hashCode(), // Map custom string ID to integer markers ID
     latitude: court.latitude,
     longitude: court.longitude,
     title: court.name,
-    iconPath: '/static/tabbar/home-active.png', // Fallback placeholder
-    width: 32,
-    height: 32,
+    iconPath: '/static/tabbar/home-active.png',
+    width: 28,
+    height: 28,
     callout: {
-      content: court.name + '\n★ ' + court.rating,
+      content: `${court.name}\n★ ${court.rating} | ${court.distance}`,
       color: '#FFFFFF',
-      fontSize: 12,
+      fontSize: 11,
       borderRadius: 6,
       bgColor: '#1E1E1E',
-      padding: 8,
+      padding: 6,
       display: 'ALWAYS'
     }
   }));
 });
+
+// String Hashing helper to convert UUID string to integer safely for Map markers
+String.prototype.hashCode = function() {
+  let hash = 0;
+  for (let i = 0; i < this.length; i++) {
+    const character = this.charCodeAt(i);
+    hash = ((hash << 5) - hash) + character;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash);
+};
 
 // Toggle search filters
 const toggleFilter = (id: string) => {
@@ -232,26 +362,239 @@ const onSearch = () => {
   console.log('Searching for:', searchQuery.value);
 };
 
-const navigateToRegister = () => {
-  uni.showToast({
-    title: 'Court Registry coming soon!',
-    icon: 'none'
+// Fetch nearby courts (circular radius)
+const fetchNearbyCourts = (lng: number, lat: number) => {
+  uni.request({
+    url: `${BASE_URL}/courts/nearby`,
+    method: 'GET',
+    data: {
+      lng: lng.toString(),
+      lat: lat.toString(),
+      radius: '10000' // 10km radius
+    },
+    success: (res) => {
+      if (res.statusCode === 200) {
+        const rawCourts = res.data as any[];
+        courts.value = rawCourts.map(c => ({
+          id: c.id,
+          name: c.name,
+          address: c.address,
+          latitude: c.lat,
+          longitude: c.lng,
+          isIndoor: c.isIndoor,
+          hasLights: c.hasLights,
+          netType: c.netType === 'permanent' ? 'Permanent' : 'Portable',
+          distance: c.distance ? `${(c.distance / 1000).toFixed(1)} km` : '0.1 km',
+          rating: c.isVerified ? 4.9 : 4.5,
+          activePlayers: Math.floor(Math.random() * 12) + 3
+        }));
+      }
+    },
+    fail: (err) => {
+      console.error('Failed to fetch nearby courts:', err);
+    }
+  });
+};
+
+// Fetch courts inside map viewport bounding box
+const fetchViewportCourts = (minLng: number, minLat: number, maxLng: number, maxLat: number) => {
+  uni.request({
+    url: `${BASE_URL}/courts/viewport`,
+    method: 'GET',
+    data: {
+      minLng: minLng.toString(),
+      minLat: minLat.toString(),
+      maxLng: maxLng.toString(),
+      maxLat: maxLat.toString()
+    },
+    success: (res) => {
+      if (res.statusCode === 200) {
+        const rawCourts = res.data as any[];
+        courts.value = rawCourts.map(c => ({
+          id: c.id,
+          name: c.name,
+          address: c.address,
+          latitude: c.lat,
+          longitude: c.lng,
+          isIndoor: c.isIndoor,
+          hasLights: c.hasLights,
+          netType: c.netType === 'permanent' ? 'Permanent' : 'Portable',
+          distance: calculateDistance(userLng.value, userLat.value, c.lng, c.lat),
+          rating: c.isVerified ? 4.9 : 4.5,
+          activePlayers: Math.floor(Math.random() * 12) + 3
+        }));
+      }
+    },
+    fail: (err) => {
+      console.error('Failed to fetch viewport courts:', err);
+    }
+  });
+};
+
+// Precise client-side Haversine distance calculation
+const calculateDistance = (lng1: number, lat1: number, lng2: number, lat2: number): string => {
+  const R = 6371e3; // Earth radius in meters
+  const phi1 = lat1 * Math.PI / 180;
+  const phi2 = lat2 * Math.PI / 180;
+  const deltaPhi = (lat2 - lat1) * Math.PI / 180;
+  const deltaLambda = (lng2 - lng1) * Math.PI / 180;
+
+  const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+            Math.cos(phi1) * Math.cos(phi2) *
+            Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  const d = R * c;
+  return `${(d / 1000).toFixed(1)} km`;
+};
+
+// Handle region change on map (User dragging/panning map)
+const onRegionChange = (e: any) => {
+  if (e.type === 'end' || e.causedBy === 'drag' || e.causedBy === 'scale') {
+    if (mapContext.value) {
+      mapContext.value.getRegion({
+        success: (res: any) => {
+          const { southwest, northeast } = res;
+          fetchViewportCourts(southwest.longitude, southwest.latitude, northeast.longitude, northeast.latitude);
+        }
+      });
+      mapContext.value.getCenterLocation({
+        success: (res: any) => {
+          // Keep current map center position updated for UGC registration mapping
+          mapLng.value = res.longitude;
+          mapLat.value = res.latitude;
+        }
+      });
+    }
+  }
+};
+
+const handleRegisterTap = () => {
+  const token = uni.getStorageSync('token');
+  if (!token) {
+    showAuthModal.value = true;
+  } else {
+    // Center of registration points is exactly current map center
+    regLng.value = mapLng.value;
+    regLat.value = mapLat.value;
+    showRegisterModal.value = true;
+  }
+};
+
+const sendOtp = () => {
+  if (!authPhone.value || authPhone.value.length < 8) {
+    uni.showToast({ title: '请输入正确的手机号', icon: 'none' });
+    return;
+  }
+  uni.request({
+    url: `${BASE_URL}/auth/otp/request`,
+    method: 'POST',
+    data: { phone: authPhone.value },
+    success: (res: any) => {
+      if (res.statusCode === 201) {
+        uni.showToast({ title: '验证码已发送', icon: 'success' });
+        otpToast.value = res.data.code; // Display directly in dev mode
+        countdown.value = 60;
+        timer = setInterval(() => {
+          countdown.value--;
+          if (countdown.value <= 0) {
+            clearInterval(timer);
+          }
+        }, 1000);
+      }
+    }
+  });
+};
+
+const submitAuth = () => {
+  if (!authPhone.value || !authCode.value) {
+    uni.showToast({ title: '手机号和验证码不能为空', icon: 'none' });
+    return;
+  }
+  uni.request({
+    url: `${BASE_URL}/auth/otp/verify`,
+    method: 'POST',
+    data: { phone: authPhone.value, code: authCode.value },
+    success: (res: any) => {
+      if (res.statusCode === 201) {
+        uni.setStorageSync('token', res.data.accessToken);
+        uni.setStorageSync('user', JSON.stringify(res.data.user));
+        uni.showToast({ title: '绑定验证成功', icon: 'success' });
+        showAuthModal.value = false;
+        
+        // Open registration form immediately now that user is verified
+        setTimeout(() => {
+          handleRegisterTap();
+        }, 800);
+      } else {
+        uni.showToast({ title: '验证码错误', icon: 'none' });
+      }
+    }
+  });
+};
+
+const submitRegister = () => {
+  if (!regName.value || !regAddress.value) {
+    uni.showToast({ title: '球场名称和地址不能为空', icon: 'none' });
+    return;
+  }
+  const token = uni.getStorageSync('token');
+  uni.request({
+    url: `${BASE_URL}/courts`,
+    method: 'POST',
+    header: {
+      Authorization: `Bearer ${token}`
+    },
+    data: {
+      name: regName.value,
+      address: regAddress.value,
+      lng: regLng.value,
+      lat: regLat.value,
+      isIndoor: regIsIndoor.value,
+      hasLights: regHasLights.value,
+      numCourts: parseInt(regNumCourts.value) || 4,
+      netType: regNetType.value,
+      surfaceType: regSurfaceType.value
+    },
+    success: (res: any) => {
+      if (res.statusCode === 201) {
+        uni.showToast({ title: '球场注册成功！', icon: 'success' });
+        showRegisterModal.value = false;
+        
+        // Reset fields
+        regName.value = '';
+        regAddress.value = '';
+        
+        // Refresh local nearby courts
+        fetchNearbyCourts(mapLng.value, mapLat.value);
+      } else if (res.statusCode === 409) {
+        // High fidelity duplicate alert!
+        uni.showModal({
+          title: '球场重复警示',
+          content: res.data.message || '您附近 50 米内已存在该球场，请确认是否重复创建。',
+          showCancel: false,
+          confirmText: '我知道了'
+        });
+      } else {
+        uni.showToast({ title: res.data.message || '创建失败', icon: 'none' });
+      }
+    }
   });
 };
 
 const navigateToDetail = (court: Court) => {
-  uni.showToast({
-    title: `Selected ${court.name}`,
-    icon: 'none'
+  uni.navigateTo({
+    url: `/pages/court/detail?id=${court.id}`
   });
 };
 
 const onMarkerTap = (e: any) => {
-  const markerId = e.detail.markerId.toString();
-  const foundCourt = courts.value.find(c => c.id === markerId);
+  // Matches hashcode of court ID
+  const markerId = e.detail.markerId;
+  const foundCourt = courts.value.find(c => c.id.hashCode() === markerId);
   if (foundCourt) {
     uni.showToast({
-      title: `Map select: ${foundCourt.name}`,
+      title: `${foundCourt.name} | ${foundCourt.distance}`,
       icon: 'none'
     });
   }
@@ -263,21 +606,25 @@ const useCurrentLocation = () => {
     success: (res) => {
       userLat.value = res.latitude;
       userLng.value = res.longitude;
-      uni.showToast({
-        title: 'Map centered to location',
-        icon: 'none'
-      });
+      mapLat.value = res.latitude;
+      mapLng.value = res.longitude;
+      
+      // Load courts near current GPS location
+      fetchNearbyCourts(res.longitude, res.latitude);
     },
     fail: () => {
       uni.showToast({
-        title: 'Location permission denied',
+        title: '无法获取定位权限，加载默认位置',
         icon: 'none'
       });
+      // Fallback to load default area
+      fetchNearbyCourts(mapLng.value, mapLat.value);
     }
   });
 };
 
 onMounted(() => {
+  mapContext.value = uni.createMapContext('court-map');
   useCurrentLocation();
 });
 </script>
@@ -457,6 +804,18 @@ onMounted(() => {
   }
 }
 
+.empty-state {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 60rpx 0;
+  
+  .empty-text {
+    color: #666666;
+    font-size: 26rpx;
+  }
+}
+
 .court-list {
   display: flex;
   flex-direction: column;
@@ -596,5 +955,184 @@ onMounted(() => {
   font-size: 22rpx;
   color: #8E8E93;
   font-weight: 500;
+}
+
+/* Modals Backdrop */
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  padding: 40rpx;
+}
+
+.modal-content {
+  width: 100%;
+  background-color: #1E1E1E;
+  border-radius: 24rpx;
+  border: 1px solid #2C2C2C;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: 90vh;
+}
+
+.modal-header {
+  padding: 30rpx;
+  border-bottom: 1px solid #2C2C2C;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  
+  .modal-title {
+    font-size: 34rpx;
+    font-weight: 700;
+    color: #C1F80A;
+  }
+  
+  .modal-close {
+    font-size: 32rpx;
+    color: #8E8E93;
+    padding: 10rpx;
+  }
+}
+
+.modal-body {
+  padding: 30rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+  
+  &.scrollable {
+    overflow-y: auto;
+  }
+}
+
+.modal-desc {
+  font-size: 26rpx;
+  color: #8E8E93;
+  line-height: 1.5;
+}
+
+.coord-desc {
+  font-size: 24rpx;
+  color: #C1F80A;
+  font-weight: 600;
+  background-color: rgba(193, 248, 10, 0.05);
+  padding: 10rpx;
+  border-radius: 8rpx;
+  text-align: center;
+  margin-bottom: 10rpx;
+}
+
+.input-group-label {
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #FFFFFF;
+  margin-top: 10rpx;
+}
+
+.input-group {
+  background-color: #121212;
+  border: 1px solid #2C2C2C;
+  border-radius: 12rpx;
+  padding: 20rpx 25rpx;
+  display: flex;
+  align-items: center;
+  
+  &.row {
+    flex-direction: row;
+    padding: 10rpx 15rpx 10rpx 25rpx;
+    gap: 15rpx;
+  }
+  
+  .modal-input {
+    flex: 1;
+    color: #FFFFFF;
+    font-size: 28rpx;
+    
+    &.code-input {
+      max-width: 250rpx;
+    }
+  }
+}
+
+.send-code-btn {
+  background-color: #C1F80A;
+  color: #121212;
+  font-size: 24rpx;
+  font-weight: 700;
+  border-radius: 8rpx;
+  padding: 15rpx 25rpx;
+  line-height: 1.2;
+  
+  &[disabled] {
+    background-color: #2C2C2C;
+    color: #666666;
+  }
+}
+
+.otp-hint {
+  font-size: 22rpx;
+  color: #C1F80A;
+  font-weight: 600;
+  text-align: center;
+}
+
+.toggle-row {
+  display: flex;
+  gap: 30rpx;
+  margin-top: 10rpx;
+}
+
+.toggle-item {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #121212;
+  border: 1px solid #2C2C2C;
+  border-radius: 12rpx;
+  padding: 15rpx 20rpx;
+  
+  .toggle-label {
+    font-size: 26rpx;
+    color: #8E8E93;
+    font-weight: 500;
+  }
+}
+
+.radio-row {
+  display: flex;
+  gap: 30rpx;
+  flex-wrap: wrap;
+  margin-top: 5rpx;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  color: #8E8E93;
+  font-size: 26rpx;
+  font-weight: 500;
+}
+
+.submit-btn {
+  background-color: #C1F80A;
+  color: #121212;
+  font-weight: 700;
+  font-size: 30rpx;
+  border-radius: 40rpx;
+  padding: 22rpx 0;
+  text-align: center;
+  margin-top: 20rpx;
+  line-height: 1.2;
 }
 </style>
