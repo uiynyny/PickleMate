@@ -6,6 +6,8 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { CourtsModule } from './courts/courts.module';
 import { UsersModule } from './users/users.module';
+import { FavoritesModule } from './favorites/favorites.module';
+import { PlaySessionModule } from './play-session/play-session.module';
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { UsersModule } from './users/users.module';
     AuthModule,
     CourtsModule,
     UsersModule,
+    FavoritesModule,
+    PlaySessionModule,
   ],
   controllers: [AppController],
   providers: [AppService],
