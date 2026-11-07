@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Patch, Body, UseGuards, Request, Query } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
@@ -19,8 +19,23 @@ export class UsersController {
     nickname?: string;
     avatarUrl?: string;
     skillLevel?: number;
+    bio?: string;
+    email?: string;
   }) {
     const userId = req.user.sub;
     return this.usersService.updateProfile(userId, body);
+  }
+
+  @Get('search')
+  async searchUsers(
+    @Query('keyword') keyword?: string,
+    @Query('skillMin') skillMin?: string,
+    @Query('skillMax') skillMax?: string,
+  ) {
+    return this.usersService.searchUsers({
+      keyword,
+      skillMin: skillMin !== undefined ? parseFloat(skillMin) : undefined,
+      skillMax: skillMax !== undefined ? parseFloat(skillMax) : undefined,
+    });
   }
 }

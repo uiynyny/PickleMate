@@ -1,0 +1,20 @@
+# Pulls your exact uncensored Qwen 3.6 model as the base
+FROM hf.co/HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4_K_M
+
+# Strict Jinja 'defined' function replaced with safe Go loop syntax
+TEMPLATE """{{- if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{- end }}
+{{- range .Messages }}
+{{- if eq .Role "system" }}<|im_start|>system
+{{ .Content }}<|im_end|>
+{{- else if eq .Role "user" }}<|im_start|>user
+{{ .Content }}<|im_end|>
+{{- else if eq .Role "assistant" }}<|im_start|>assistant
+{{ .Content }}<|im_end|>
+{{- end }}
+{{- end }}
+{{- if .Prompt }}<|im_start|>user
+{{ .Prompt }}<|im_end|>
+{{- end }}<|im_start|>assistant
+"""

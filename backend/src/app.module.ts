@@ -8,6 +8,7 @@ import { CourtsModule } from './courts/courts.module';
 import { UsersModule } from './users/users.module';
 import { FavoritesModule } from './favorites/favorites.module';
 import { PlaySessionModule } from './play-session/play-session.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { PlaySessionModule } from './play-session/play-session.module';
     UsersModule,
     FavoritesModule,
     PlaySessionModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [AppService],

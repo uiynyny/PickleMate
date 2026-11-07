@@ -1,0 +1,17 @@
+{
+  "name": "PickleMate 匹克球社区",
+  "short_name": "PickleMate",
+  "description": "发现附近匹克球场、实时打卡、约球组局与球友群聊",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#121212",
+  "theme_color": "#C1F80A",
+  "icons": [
+    {
+      "src": "/static/logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}

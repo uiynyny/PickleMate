@@ -8,29 +8,52 @@ generator client {
 }
 
 model User {
-  id              String         @id @default(uuid())
+  id              String           @id @default(uuid())
   nickname        String?
   avatarUrl       String?
   skillLevel      Float?
-  wechatOpenId    String?        @unique
-  wechatUnionId   String?        @unique
-  appleUserId     String?        @unique
-  phone           String?        @unique
-  created_at      DateTime       @default(now())
+  bio             String?
+  wechatOpenId    String?          @unique
+  wechatUnionId   String?          @unique
+  appleUserId     String?          @unique
+  phone           String?          @unique
+  email           String?          @unique
+  isVerified      Boolean          @default(false)
+  created_at      DateTime         @default(now())
 
   // Relationships
-  courtsCreated   Court[]        @relation("CourtsCreated")
+  courtsCreated   Court[]          @relation("CourtsCreated")
   checkIns        CheckIn[]
   bulletinPosts   BulletinPost[]
-  hostedSessions  PlaySession[]  @relation("HostedSessions")
-  playSessions    PlaySession[]  @relation("PlaySessionPlayers")
+  hostedSessions  PlaySession[]    @relation("HostedSessions")
+  playSessions    PlaySession[]    @relation("PlaySessionPlayers")
+  refreshTokens   RefreshToken[]   @relation("RefreshTokens")
+  favorites       Favorite[]       @relation("Favorites")
+  sentInvites     SessionInvite[]  @relation("SentInvites")
+  receivedInvites SessionInvite[]  @relation("ReceivedInvites")
+  chatRooms       ChatRoom[]       @relation("ChatRoomParticipants")
+  chatMessages    ChatMessage[]    @relation("UserChatMessages")
+  dmConversationsA DmConversation[] @relation("DmUserA")
+  dmConversationsB DmConversation[] @relation("DmUserB")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation("RefreshTokens", fields: [userId], references: [id])
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Court {
   id            String         @id @default(uuid())
   name          String
   address       String
-  location      Unsupported("geography(Point, 4326)")
+  lng           Float          @default(0) // Longitude
+  lat           Float          @default(0) // Latitude
   isIndoor      Boolean
   hasLights     Boolean
   numCourts     Int
@@ -45,6 +68,8 @@ model Court {
   checkIns      CheckIn[]
   posts         BulletinPost[]
   sessions      PlaySession[]
+  favoritedBy   Favorite[]     @relation("Favorites")
+  chatRoom      ChatRoom?      @relation("CourtChatRoom")
 }
 
 model CheckIn {
@@ -72,6 +97,19 @@ model BulletinPost {
   court       Court    @relation(fields: [courtId], references: [id])
 }
 
+model Favorite {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  // Relationships
+  userId    String
+  user      User     @relation("Favorites", fields: [userId], references: [id])
+  courtId   String
+  court     Court    @relation("Favorites", fields: [courtId], references: [id])
+
+  @@unique([userId, courtId])
+}
+
 model PlaySession {
   id          String   @id @default(uuid())
   title       String
@@ -88,4 +126,87 @@ model PlaySession {
   hostId      String
   host        User     @relation("HostedSessions", fields: [hostId], references: [id])
   players     User[]   @relation("PlaySessionPlayers")
+  invites     SessionInvite[]
+  chatRoom    ChatRoom? @relation("SessionChatRoom")
+}
+
+model SessionInvite {
+  id          String       @id @default(uuid())
+  status      InviteStatus @default(PENDING)
+  sentAt      DateTime     @default(now())
+  respondedAt DateTime?
+
+  // Relationships
+  sessionId   String
+  session     PlaySession  @relation(fields: [sessionId], references: [id])
+  senderId    String
+  sender      User         @relation("SentInvites", fields: [senderId], references: [id])
+  recipientId String
+  recipient   User         @relation("ReceivedInvites", fields: [recipientId], references: [id])
+
+  @@map("session_invites")
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+model ChatRoom {
+  id           String        @id @default(uuid())
+  name         String?
+  courtId      String?       @unique
+  court        Court?        @relation("CourtChatRoom", fields: [courtId], references: [id], onDelete: Cascade)
+  sessionId    String?       @unique
+  session      PlaySession?  @relation("SessionChatRoom", fields: [sessionId], references: [id], onDelete: Cascade)
+  participants User[]        @relation("ChatRoomParticipants")
+  messages     ChatMessage[]
+  createdAt    DateTime      @default(now())
+
+  @@map("chat_rooms")
+}
+
+model DmConversation {
+  id           String        @id @default(uuid())
+  userAId      String
+  userA        User          @relation("DmUserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userBId      String
+  userB        User          @relation("DmUserB", fields: [userBId], references: [id], onDelete: Cascade)
+  messages     ChatMessage[]
+  updatedAt    DateTime      @updatedAt
+  createdAt    DateTime      @default(now())
+
+  @@unique([userAId, userBId])
+  @@map("dm_conversations")
+}
+
+model ChatMessage {
+  id          String          @id @default(uuid())
+  content     String
+  type        MessageType     @default(TEXT)
+  userId      String
+  user        User            @relation("UserChatMessages", fields: [userId], references: [id], onDelete: Cascade)
+  roomId      String?
+  room        ChatRoom?       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  dmId        String?
+  dm          DmConversation? @relation(fields: [dmId], references: [id], onDelete: Cascade)
+  parentId    String?
+  parent      ChatMessage?    @relation("MessageReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies     ChatMessage[]   @relation("MessageReplies")
+  pollOptions String?
+  isDeleted   Boolean         @default(false)
+  createdAt   DateTime        @default(now())
+
+  @@index([roomId, createdAt])
+  @@index([dmId, createdAt])
+  @@map("chat_messages")
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  POLL
+  SYSTEM
 }

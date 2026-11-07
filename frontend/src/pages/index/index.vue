@@ -240,8 +240,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-
-const BASE_URL = 'http://localhost:3000';
+import { apiRequest } from '../../services/api';
 
 interface Court {
   id: string;
@@ -298,10 +297,21 @@ const filters = [
 
 const activeFilters = ref<string[]>([]);
 
+// String Hashing helper to convert UUID string to integer safely for Map markers
+const hashString = (value: string): number => {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    const character = value.charCodeAt(i);
+    hash = ((hash << 5) - hash) + character;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash);
+};
+
 // Convert courts to Map Markers
 const mapMarkers = computed(() => {
   return courts.value.map(court => ({
-    id: court.id.hashCode(), // Map custom string ID to integer markers ID
+    id: hashString(court.id), // Map custom string ID to integer markers ID
     latitude: court.latitude,
     longitude: court.longitude,
     title: court.name,
@@ -319,17 +329,6 @@ const mapMarkers = computed(() => {
     }
   }));
 });
-
-// String Hashing helper to convert UUID string to integer safely for Map markers
-String.prototype.hashCode = function() {
-  let hash = 0;
-  for (let i = 0; i < this.length; i++) {
-    const character = this.charCodeAt(i);
-    hash = ((hash << 5) - hash) + character;
-    hash = hash & hash; // Convert to 32bit integer
-  }
-  return Math.abs(hash);
-};
 
 // Toggle search filters
 const toggleFilter = (id: string) => {
@@ -363,72 +362,59 @@ const onSearch = () => {
 };
 
 // Fetch nearby courts (circular radius)
-const fetchNearbyCourts = (lng: number, lat: number) => {
-  uni.request({
-    url: `${BASE_URL}/courts/nearby`,
-    method: 'GET',
-    data: {
-      lng: lng.toString(),
-      lat: lat.toString(),
-      radius: '10000' // 10km radius
-    },
-    success: (res) => {
-      if (res.statusCode === 200) {
-        const rawCourts = res.data as any[];
-        courts.value = rawCourts.map(c => ({
-          id: c.id,
-          name: c.name,
-          address: c.address,
-          latitude: c.lat,
-          longitude: c.lng,
-          isIndoor: c.isIndoor,
-          hasLights: c.hasLights,
-          netType: c.netType === 'permanent' ? 'Permanent' : 'Portable',
-          distance: c.distance ? `${(c.distance / 1000).toFixed(1)} km` : '0.1 km',
-          rating: c.isVerified ? 4.9 : 4.5,
-          activePlayers: Math.floor(Math.random() * 12) + 3
-        }));
-      }
-    },
-    fail: (err) => {
-      console.error('Failed to fetch nearby courts:', err);
+const fetchNearbyCourts = async (lng: number, lat: number) => {
+  try {
+    const res = await apiRequest<any[]>({
+      url: `/courts/nearby?lng=${encodeURIComponent(lng.toString())}&lat=${encodeURIComponent(lat.toString())}&radius=10000`,
+      method: 'GET',
+      auth: false,
+    });
+    if (res.statusCode === 200 && Array.isArray(res.data)) {
+      courts.value = res.data.map(c => ({
+        id: c.id,
+        name: c.name,
+        address: c.address,
+        latitude: c.lat,
+        longitude: c.lng,
+        isIndoor: c.isIndoor,
+        hasLights: c.hasLights,
+        netType: c.netType === 'permanent' ? 'Permanent' : 'Portable',
+        distance: c.distance ? `${(c.distance / 1000).toFixed(1)} km` : '0.1 km',
+        rating: c.isVerified ? 4.9 : 4.5,
+        activePlayers: Math.floor(Math.random() * 12) + 3
+      }));
     }
-  });
+  } catch (err) {
+    console.error('Failed to fetch nearby courts:', err);
+  }
 };
 
 // Fetch courts inside map viewport bounding box
-const fetchViewportCourts = (minLng: number, minLat: number, maxLng: number, maxLat: number) => {
-  uni.request({
-    url: `${BASE_URL}/courts/viewport`,
-    method: 'GET',
-    data: {
-      minLng: minLng.toString(),
-      minLat: minLat.toString(),
-      maxLng: maxLng.toString(),
-      maxLat: maxLat.toString()
-    },
-    success: (res) => {
-      if (res.statusCode === 200) {
-        const rawCourts = res.data as any[];
-        courts.value = rawCourts.map(c => ({
-          id: c.id,
-          name: c.name,
-          address: c.address,
-          latitude: c.lat,
-          longitude: c.lng,
-          isIndoor: c.isIndoor,
-          hasLights: c.hasLights,
-          netType: c.netType === 'permanent' ? 'Permanent' : 'Portable',
-          distance: calculateDistance(userLng.value, userLat.value, c.lng, c.lat),
-          rating: c.isVerified ? 4.9 : 4.5,
-          activePlayers: Math.floor(Math.random() * 12) + 3
-        }));
-      }
-    },
-    fail: (err) => {
-      console.error('Failed to fetch viewport courts:', err);
+const fetchViewportCourts = async (minLng: number, minLat: number, maxLng: number, maxLat: number) => {
+  try {
+    const res = await apiRequest<any[]>({
+      url: `/courts/viewport?minLng=${minLng}&minLat=${minLat}&maxLng=${maxLng}&maxLat=${maxLat}`,
+      method: 'GET',
+      auth: false,
+    });
+    if (res.statusCode === 200 && Array.isArray(res.data)) {
+      courts.value = res.data.map(c => ({
+        id: c.id,
+        name: c.name,
+        address: c.address,
+        latitude: c.lat,
+        longitude: c.lng,
+        isIndoor: c.isIndoor,
+        hasLights: c.hasLights,
+        netType: c.netType === 'permanent' ? 'Permanent' : 'Portable',
+        distance: calculateDistance(userLng.value, userLat.value, c.lng, c.lat),
+        rating: c.isVerified ? 4.9 : 4.5,
+        activePlayers: Math.floor(Math.random() * 12) + 3
+      }));
     }
-  });
+  } catch (err) {
+    console.error('Failed to fetch viewport courts:', err);
+  }
 };
 
 // Precise client-side Haversine distance calculation
@@ -481,70 +467,67 @@ const handleRegisterTap = () => {
   }
 };
 
-const sendOtp = () => {
+const sendOtp = async () => {
   if (!authPhone.value || authPhone.value.length < 8) {
     uni.showToast({ title: '请输入正确的手机号', icon: 'none' });
     return;
   }
-  uni.request({
-    url: `${BASE_URL}/auth/otp/request`,
+  const res = await apiRequest<any>({
+    url: '/auth/otp/request',
     method: 'POST',
     data: { phone: authPhone.value },
-    success: (res: any) => {
-      if (res.statusCode === 201) {
-        uni.showToast({ title: '验证码已发送', icon: 'success' });
-        otpToast.value = res.data.code; // Display directly in dev mode
-        countdown.value = 60;
-        timer = setInterval(() => {
-          countdown.value--;
-          if (countdown.value <= 0) {
-            clearInterval(timer);
-          }
-        }, 1000);
-      }
-    }
+    auth: false,
   });
+  if (res.statusCode === 201 && res.data) {
+    uni.showToast({ title: '验证码已发送', icon: 'success' });
+    otpToast.value = res.data.code; // Display directly in dev mode
+    countdown.value = 60;
+    timer = setInterval(() => {
+      countdown.value--;
+      if (countdown.value <= 0) {
+        clearInterval(timer);
+      }
+    }, 1000);
+  }
 };
 
-const submitAuth = () => {
+const submitAuth = async () => {
   if (!authPhone.value || !authCode.value) {
     uni.showToast({ title: '手机号和验证码不能为空', icon: 'none' });
     return;
   }
-  uni.request({
-    url: `${BASE_URL}/auth/otp/verify`,
+  const res = await apiRequest<any>({
+    url: '/auth/otp/verify',
     method: 'POST',
     data: { phone: authPhone.value, code: authCode.value },
-    success: (res: any) => {
-      if (res.statusCode === 201) {
-        uni.setStorageSync('token', res.data.accessToken);
-        uni.setStorageSync('user', JSON.stringify(res.data.user));
-        uni.showToast({ title: '绑定验证成功', icon: 'success' });
-        showAuthModal.value = false;
-        
-        // Open registration form immediately now that user is verified
-        setTimeout(() => {
-          handleRegisterTap();
-        }, 800);
-      } else {
-        uni.showToast({ title: '验证码错误', icon: 'none' });
-      }
-    }
+    auth: false,
   });
+  if (res.statusCode === 201 && res.data) {
+    uni.setStorageSync('token', res.data.accessToken);
+    if (res.data.refreshToken) {
+      uni.setStorageSync('refreshToken', res.data.refreshToken);
+    }
+    uni.setStorageSync('user', JSON.stringify(res.data.user));
+    uni.showToast({ title: '绑定验证成功', icon: 'success' });
+    showAuthModal.value = false;
+
+    // Open registration form immediately now that user is verified
+    setTimeout(() => {
+      handleRegisterTap();
+    }, 800);
+  } else {
+    uni.showToast({ title: '验证码错误', icon: 'none' });
+  }
 };
 
-const submitRegister = () => {
+const submitRegister = async () => {
   if (!regName.value || !regAddress.value) {
     uni.showToast({ title: '球场名称和地址不能为空', icon: 'none' });
     return;
   }
-  const token = uni.getStorageSync('token');
-  uni.request({
-    url: `${BASE_URL}/courts`,
+  const res = await apiRequest<any>({
+    url: '/courts',
     method: 'POST',
-    header: {
-      Authorization: `Bearer ${token}`
-    },
     data: {
       name: regName.value,
       address: regAddress.value,
@@ -554,32 +537,30 @@ const submitRegister = () => {
       hasLights: regHasLights.value,
       numCourts: parseInt(regNumCourts.value) || 4,
       netType: regNetType.value,
-      surfaceType: regSurfaceType.value
+      surfaceType: regSurfaceType.value,
     },
-    success: (res: any) => {
-      if (res.statusCode === 201) {
-        uni.showToast({ title: '球场注册成功！', icon: 'success' });
-        showRegisterModal.value = false;
-        
-        // Reset fields
-        regName.value = '';
-        regAddress.value = '';
-        
-        // Refresh local nearby courts
-        fetchNearbyCourts(mapLng.value, mapLat.value);
-      } else if (res.statusCode === 409) {
-        // High fidelity duplicate alert!
-        uni.showModal({
-          title: '球场重复警示',
-          content: res.data.message || '您附近 50 米内已存在该球场，请确认是否重复创建。',
-          showCancel: false,
-          confirmText: '我知道了'
-        });
-      } else {
-        uni.showToast({ title: res.data.message || '创建失败', icon: 'none' });
-      }
-    }
   });
+  if (res.statusCode === 201) {
+    uni.showToast({ title: '球场注册成功！', icon: 'success' });
+    showRegisterModal.value = false;
+
+    // Reset fields
+    regName.value = '';
+    regAddress.value = '';
+
+    // Refresh local nearby courts
+    fetchNearbyCourts(mapLng.value, mapLat.value);
+  } else if (res.statusCode === 409) {
+    // High fidelity duplicate alert!
+    uni.showModal({
+      title: '球场重复警示',
+      content: res.data?.message || '您附近 50 米内已存在该球场，请确认是否重复创建。',
+      showCancel: false,
+      confirmText: '我知道了',
+    });
+  } else {
+    uni.showToast({ title: res.data?.message || '创建失败', icon: 'none' });
+  }
 };
 
 const navigateToDetail = (court: Court) => {
@@ -591,7 +572,7 @@ const navigateToDetail = (court: Court) => {
 const onMarkerTap = (e: any) => {
   // Matches hashcode of court ID
   const markerId = e.detail.markerId;
-  const foundCourt = courts.value.find(c => c.id.hashCode() === markerId);
+  const foundCourt = courts.value.find(c => hashString(c.id) === markerId);
   if (foundCourt) {
     uni.showToast({
       title: `${foundCourt.name} | ${foundCourt.distance}`,

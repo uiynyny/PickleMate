@@ -38,8 +38,8 @@ export class CourtsService {
     const isVerified = false; // 默认不认证，直接可见
 
     await this.prisma.$executeRawUnsafe(`
-      INSERT INTO "Court" ("id", "name", "address", "location", "isIndoor", "hasLights", "numCourts", "netType", "surfaceType", "isVerified", "createdById")
-      VALUES ($1, $2, $3, ST_SetSRID(ST_MakePoint($4, $5), 4326)::geography, $6, $7, $8, $9, $10, $11, $12)
+      INSERT INTO "Court" ("id", "name", "address", "lng", "lat", "location", "isIndoor", "hasLights", "numCourts", "netType", "surfaceType", "isVerified", "createdById")
+      VALUES ($1, $2, $3, $4, $5, ST_SetSRID(ST_MakePoint($4, $5), 4326)::geography, $6, $7, $8, $9, $10, $11, $12)
     `, courtId, name, address, lng, lat, isIndoor, hasLights, numCourts, netType, surfaceType, isVerified, userId);
 
     return this.getCourtById(courtId);

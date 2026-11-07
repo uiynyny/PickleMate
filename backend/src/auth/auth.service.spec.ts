@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 
 describe('AuthService', () => {
@@ -12,13 +13,28 @@ describe('AuthService', () => {
   const mockPrismaService = {
     user: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+    },
+    refreshToken: {
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      delete: jest.fn(),
+      deleteMany: jest.fn(),
     },
   };
 
   const mockJwtService = {
     signAsync: jest.fn().mockResolvedValue('mock_token'),
+  };
+
+  const mockConfigService = {
+    get: jest.fn().mockImplementation((key: string) => {
+      if (key === 'WECHAT_APPID') return 'mock_appid';
+      if (key === 'WECHAT_SECRET') return 'mock_secret';
+      return undefined;
+    }),
   };
 
   beforeEach(async () => {
@@ -27,6 +43,7 @@ describe('AuthService', () => {
         AuthService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: JwtService, useValue: mockJwtService },
+        { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
 

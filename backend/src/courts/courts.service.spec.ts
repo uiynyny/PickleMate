@@ -81,6 +81,13 @@ describe('CourtsService', () => {
       expect(res.id).toBe('mock-court-id');
       expect(res.name).toBe(dto.name);
       expect(prisma.$executeRawUnsafe).toHaveBeenCalled();
+
+      const [sql, ...params] = (prisma.$executeRawUnsafe as jest.Mock).mock.calls[0];
+      expect(sql).toContain('"lng"');
+      expect(sql).toContain('"lat"');
+      expect(sql).toContain('"location"');
+      expect(params).toContain(dto.lng);
+      expect(params).toContain(dto.lat);
     });
   });
 
